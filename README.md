@@ -6,7 +6,7 @@ A knowledge graph is a structured way of representing knowledge, employing a gra
 
 ## Steps Involved in Creating and Utilizing a Knowledge Graph to Enhance LLMs:
 ### 1. Connecting to Amazon Bedrock and Neo4j:
-`-` Establish a connection with Amazon Bedrock using the boto3 library by setting up credentials like AWS Access Key, Secret 
+  - Establish a connection with Amazon Bedrock using the boto3 library by setting up credentials like AWS Access Key, Secret 
     Access Key, and Region. This connection enables the use of language models to extract nodes and relationships from 
     unstructured data. Simultaneously, connect to a Neo4j database using the GraphDatabase driver from the neo4j library, 
     allowing you to run Cypher queries to store and manage the structured knowledge graph.
