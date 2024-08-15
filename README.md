@@ -1,4 +1,4 @@
-# text-kgs
+# Text-KGs
 This project demonstrates how to transform unstructured data into a structured knowledge graph using Amazon Bedrock and Neo4j. The process involves reading various data formats, extracting nodes and relationships using a language model (LLM) from Amazon Bedrock, generating Cypher queries to create the graph in Neo4j, and then uploading the data to Neo4j.
 
 ## Knowledge Graph:
