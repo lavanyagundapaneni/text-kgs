@@ -16,7 +16,7 @@ A knowledge graph is a structured way of representing knowledge, employing a gra
   each file type, such as loading CSV files into a DataFrame, reading text files line by line, parsing DOCX files using the 
   python-docx library, and extracting text from PDF files using PyPDF2.
 ### 3. Extracting Entities and Relationships Using LLMs:
-- Use a language model hosted on Amazon Bedrock to extract meaningful entities and relationships from the unstructured data. 
+- Using a language model hosted on Amazon Bedrock to extract meaningful entities and relationships from the unstructured data. 
   This is achieved by creating a prompt that instructs the LLM to identify relevant entities and their relationships. The 
   prompt is sent to the Mistral model via the Bedrock client, and the resulting insights (nodes and relationships) are used 
   to build the knowledge graph.
