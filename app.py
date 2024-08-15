@@ -88,7 +88,7 @@ def generate_cypher_queries(insights):
         "Generate Cypher queries to create nodes and relationships without duplicate nodes and each query should consists of single property only from the following data insights. "
         "Do not use MATCH keyword in relationships creation only use CREATE keyword. "
         "Format the queries without any special symbols and ensure they can be executed directly in Neo4j. "
-        "generate each query line by line so that there will be no syntax error."
+        "generate each query line by line to avoid syntax."
         "Only create nodes do not include any properties"
         "Data Insights:\n" + insights
     )
@@ -99,64 +99,6 @@ def generate_cypher_queries(insights):
     queries = re.sub(r'(\b(CREATE|MERGE)\b)', r'\n\1', queries)
     
     return queries
-
-# Generate Ingestion Code Manually (Simple Example)
-def generate_ingestion_code():
-    load_csv_code = """
-    LOAD CSV WITH HEADERS FROM 'C:/Users/chint/Downloads/prepare.csv' AS row
-    CREATE (n:Entity {name: row.name})
-    MERGE (s:Student {id: row.Student})
-    MERGE (sch:School {name: row.Current_School})
-    MERGE (g:Grade {name: row.Current_Grade})
-    MERGE (str:Stream {name: row.Current_Stream})
-    MERGE (uni:University {name: row.University})
-    MERGE (d:Degree {name: row.Future_Course})
-    MERGE (sy:StartYear {year: toInteger(row.Start_Year)})
-    MERGE (dur:Duration {years: toInteger(row.Course_Duration)})
-    MERGE (bud:Budget {amount: toFloat(row.Financial_Budget), currency: "USD"})
-
-    CREATE (s)-[:ATTENDS]->(sch)
-    CREATE (s)-[:IN_GRADE]->(g)
-    CREATE (s)-[:HAS_STREAM]->(str)
-    CREATE (s)-[:WANTS_TO_PURSE]->(d)
-    CREATE (d)-[:AT_UNIVERSITY]->(uni)
-    CREATE (d)-[:STARTING_IN]->(sy)
-    CREATE (d)-[:HAS_DURATION]->(dur)
-    CREATE (d)-[:HAS_BUDGET]->(bud)
-    """
-    
-    standard_cypher_code = """
-    CREATE (s1:Student {name: "Student1"})
-    CREATE (g1:Grade {name: "11th"})
-    CREATE (c1:Curriculum {name: "CBSE"})
-    CREATE (sch1:School {name: "Hyderabad International School"})
-    CREATE (loc1:Location {name: "Hyderabad"})
-    CREATE (str1:Stream {name: "MPC"})
-    CREATE (d1:Degree {name: "Bachelor of Science"})
-    CREATE (sub1:Subject {name: "Computer Science"})
-    CREATE (uni1:University {name: "University of California, Berkeley"})
-    CREATE (cou1:Country {name: "United States"})
-    CREATE (dur1:Duration {years: 4})
-    CREATE (sy1:StartYear {year: 2027})
-    CREATE (cat1:Category {name: "Undergraduate"})
-    CREATE (bud1:Budget {amount: 50000, currency: "USD"})
-
-    CREATE (s1)-[:IN_GRADE]->(g1)
-    CREATE (s1)-[:FOLLOWING_CURRICULUM]->(c1)
-    CREATE (s1)-[:ATTENDS_SCHOOL]->(sch1)
-    CREATE (s1)-[:LOCATED_IN]->(loc1)
-    CREATE (s1)-[:HAS_STREAM]->(str1)
-    CREATE (s1)-[:WANTS_TO_PURUSE]->(d1)
-    CREATE (d1)-[:HAS_SUBJECT]->(sub1)
-    CREATE (d1)-[:AT_UNIVERSITY]->(uni1)
-    CREATE (d1)-[:IN_COUNTRY]->(cou1)
-    CREATE (d1)-[:HAS_DURATION]->(dur1)
-    CREATE (d1)-[:STARTING_IN]->(sy1)
-    CREATE (d1)-[:HAS_CATEGORY]->(cat1)
-    CREATE (d1)-[:HAS_BUDGET]->(bud1)
-    """
-    
-    return load_csv_code, standard_cypher_code
 
 # Function to clean and validate the generated Cypher queries
 def clean_and_validate_query(query):
@@ -203,11 +145,6 @@ def main(file_path):
     # Graph Data Modeling
     cypher_queries = generate_cypher_queries(insights)
     print("Cypher Queries:", cypher_queries)
-    
-    # Generate Ingestion Code
-    load_csv_code, standard_cypher_code = generate_ingestion_code()
-    print("Load CSV Code:", load_csv_code)
-    print("Standard Cypher Code:", standard_cypher_code)
     
     # Data Ingestion
     execute_cypher_queries(driver, cypher_queries)
