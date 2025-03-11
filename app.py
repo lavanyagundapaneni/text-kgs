@@ -3,47 +3,37 @@ import json
 import re
 import pandas as pd
 import PyPDF2
+import networkx as nx
+import matplotlib.pyplot as plt
 from docx import Document
 from dotenv import load_dotenv
-import boto3
-from neo4j import GraphDatabase
+import openai
 
 # Load environment variables
 load_dotenv()
 
-# Get credentials from environment variables
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
-AWS_REGION = os.getenv('AWS_REGION')
+# Get OpenAI API key
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-# Initialize the Bedrock client
-bedrock_client = boto3.client(
-    'bedrock-runtime',
-    region_name=AWS_REGION,
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-)
-
-# Define a function to call Amazon Bedrock using the Converse API
-def call_bedrock(prompt):
+# Function to call ChatGPT for extracting nodes and relationships
+def call_chatgpt(prompt):
     try:
-        conversation = [
-            {
-                "role": "user",
-                "content": [{"text": prompt}],
-            }
-        ]
-        response = bedrock_client.converse(
-            modelId='mistral.mistral-7b-instruct-v0:2',
-            messages=conversation,
-            inferenceConfig={"maxTokens": 8192, "temperature": 0.7, "topP": 0.7},
-            additionalModelRequestFields={"top_k": 50}
+        client = openai.OpenAI()  # Initialize the OpenAI client
+        
+        response = client.chat.completions.create(  # Updated API call
+            model="gpt-4-turbo",
+            messages=[{"role": "system", "content": "You are an expert in knowledge graph extraction."},
+                      {"role": "user", "content": prompt}],
+            max_tokens=4096,
+            temperature=0.5,
+            top_p=0.9
         )
-        return response["output"]["message"]["content"][0]["text"]
+        return response.choices[0].message.content  # Corrected response handling
     except Exception as e:
-        raise Exception(f"An error occurred: {e}")
+        print(f"Error accessing ChatGPT: {e}")
+        raise
 
-# Read unstructured data from file
+# Function to read different file types
 def read_unstructured_data(file_path):
     if file_path.endswith('.csv'):
         return pd.read_csv(file_path).to_string(index=False)
@@ -71,87 +61,121 @@ def load_pdf(file_path):
             text += page.extract_text()
     return text
 
-# Data Discovery: Extract nodes and relationships from unstructured data
-def discover_data_insights(data):
+# Repair and parse JSON from LLM response
+def repair_and_parse_json(insights):
+    try:
+        start_index = insights.find('{')
+        end_index = insights.rfind('}') + 1
+        if start_index == -1 or end_index == -1:
+            raise ValueError("No valid JSON object found in the response.")
+
+        json_data = insights[start_index:end_index]
+        
+        try:
+            from json_repair import repair_json
+            repaired_json = repair_json(json_data)
+            return json.loads(repaired_json)
+        except ImportError:
+            return json.loads(json_data)
+    
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error: {e}")
+        raise ValueError("Invalid JSON format")
+
+# Extract nodes and relationships using ChatGPT
+def extract_nodes_and_relationships(data):
     prompt = (
-        "Extract all nodes and relationships from the following unstructured data. "
-        "Provide a clear list of nodes and relationships without any special characters. "
-        "Avoid using any special symbols like ** or //."
-        "\n\nUnstructured Data:\n" + data
-        )
-    insights = call_bedrock(prompt)
+        "You are an expert in extracting nodes and relationships frpom the given data. "
+        "Extract all nodes and relationships from the following text and return them in valid JSON format.\n\n"
+        "### Example:\n"
+        "Input:\n"
+        "Grade 9 math questions:\n"
+        "- What is 2+2?\n"
+        "- What is the Pythagorean theorem?\n"
+        "Output:\n"
+        '{\n'
+        '    "nodes": [\n'
+        '        {"id": "Grade 9", "type": "Grade"},\n'
+        '        {"id": "Mathematics", "type": "Subject"},\n'
+        '        {"id": "What is 2+2?", "type": "Question"},\n'
+        '        {"id": "What is the Pythagorean theorem?", "type": "Question"}\n'
+        '    ],\n'
+        '    "relationships": [\n'
+        '        {"source": "Grade 9", "target": "Mathematics", "type": "HAS_SUBJECT"},\n'
+        '        {"source": "Mathematics", "target": "What is 2+2?", "type": "HAS_QUESTION"},\n'
+        '        {"source": "Mathematics", "target": "What is the Pythagorean theorem?", "type": "HAS_QUESTION"}\n'
+        '    ]\n'
+        '}\n\n'
+        "### Unstructured Data:\n" + data
+    )
+    insights = call_chatgpt(prompt)
     return insights
 
-# Graph Data Modeling: Generate Cypher queries from insights
-def generate_cypher_queries(insights):
-    prompt = (
-        "Generate Cypher queries to create nodes and relationships without duplicate nodes and each query should consists of single property only from the following data insights. "
-        "Do not use MATCH keyword in relationships creation only use CREATE keyword. "
-        "Format the queries without any special symbols and ensure they can be executed directly in Neo4j. "
-        "generate each query line by line to avoid syntax."
-        "Only create nodes do not include any properties"
-        "Data Insights:\n" + insights
-    )
-    queries = call_bedrock(prompt)
-    queries = re.sub(r'\s+', ' ', queries.strip())
-    
-    # Split by Cypher keywords to ensure proper formatting
-    queries = re.sub(r'(\b(CREATE|MERGE)\b)', r'\n\1', queries)
-    
-    return queries
+# Function to build a knowledge graph using NetworkX
+def build_knowledge_graph(insights_json):
+    G = nx.DiGraph()  
 
-# Function to clean and validate the generated Cypher queries
-def clean_and_validate_query(query):
-    # Remove unnecessary characters
-    query = re.sub(r'[\\]', '', query.strip())
-    
-    # Basic validation for Cypher syntax
-    valid_keywords = ['CREATE', 'MATCH', 'MERGE', 'RETURN', 'DETACH', 'DELETE', 'SET', 'WITH']
-    first_word = query.split()[0].upper()
-    if first_word in valid_keywords:
-        return query
+    if isinstance(insights_json, dict) and "relationships" in insights_json:
+        relationships = insights_json["relationships"]
+    elif isinstance(insights_json, list):
+        relationships = [rel for rel in insights_json if "source" in rel and "target" in rel]
     else:
-        raise ValueError(f"Invalid Cypher query: {query}")
+        raise ValueError("Unexpected format for insights_json")
 
-# Connect to Neo4j
-neo4j_uri = "bolt://localhost:7687"  # Adjust as necessary
-neo4j_user = "neo4j"
-neo4j_password = "anuradha"
+    # Extract unique nodes
+    nodes = set()
+    for rel in relationships:
+        nodes.add(rel["source"])
+        nodes.add(rel["target"])
 
-driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+    # Add nodes to the graph
+    for node in nodes:
+        G.add_node(node)
 
-# Data Ingestion: Upload Cypher queries to Neo4j
-def execute_cypher_queries(driver, queries):
-    with driver.session() as session:
-        for query in queries.split('\n'):
-            if query.strip():
-                try:
-                    cleaned_query = clean_and_validate_query(query)
-                    session.run(cleaned_query)
-                    print(f"Executed: {cleaned_query}")
-                except ValueError as ve:
-                    print(f"Skipping invalid query: {ve}")
-                except Exception as e:
-                    print(f"Error executing query: {query}\n{e}")
+    # Add relationships (edges)
+    for rel in relationships:
+        G.add_edge(rel["source"], rel["target"], type=rel["type"])
+
+    return G
+
+# Function to visualize the knowledge graph
+def visualize_graph(G):
+    plt.figure(figsize=(10, 6))
+    pos = nx.spring_layout(G)
+
+    nx.draw(G, pos, with_labels=True, node_color='skyblue', edge_color='gray', node_size=2000, font_size=10)
+
+    edge_labels = {(u, v): G.edges[u, v]['type'] for u, v in G.edges()}
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='red')
+
+    plt.title("Knowledge Graph")
+    plt.show()
 
 # Main function
 def main(file_path):
+    # Read unstructured data
     unstructured_data = read_unstructured_data(file_path)
-    
-    # Data Discovery
-    insights = discover_data_insights(unstructured_data)
-    print("Data Insights:", insights)
-    
-    # Graph Data Modeling
-    cypher_queries = generate_cypher_queries(insights)
-    print("Cypher Queries:", cypher_queries)
-    
-    # Data Ingestion
-    execute_cypher_queries(driver, cypher_queries)
 
-# Path to the unstructured data file
-file_path = 'C:/Users/chint/Downloads/SOP DRAFT KAARUNYA.docx'  # Replace with your file path
+    # Extract nodes and relationships
+    raw_insights = extract_nodes_and_relationships(unstructured_data)
 
-# Execute the main function
+    print("Raw Data Insights:", raw_insights)  
+
+    try:
+        insights_json = repair_and_parse_json(raw_insights)
+        print("JSON Insights:", json.dumps(insights_json, indent=4))
+
+        # Build knowledge graph
+        G = build_knowledge_graph(insights_json)
+
+        # Visualize knowledge graph
+        visualize_graph(G)
+
+    except ValueError as e:
+        print(f"Error processing data: {e}")
+
+# File path to unstructured data (replace with your actual path)
+file_path = "C:/Users/chint/Downloads/grade_subject_questions.csv"
+
 if __name__ == "__main__":
     main(file_path)
